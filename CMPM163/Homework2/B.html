@@ -1,0 +1,550 @@
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>demo - Phong shader</title>
+		<meta charset="utf-8">
+		<style>
+			body {
+			  	margin: 0px;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+<body>
+    
+    <p>Using <a href="https://poly.google.com/view/4exv8S3Chi6" target="_blank">Neil Morrison's Self Portrait Attempt 2 from Google Poly</a></p>
+<button id="button">Sneeze</button>
+    
+<div id="container"></div>
+
+    <script src="js/three.js"></script>
+    <script src="js/OBJLoader.js"></script>
+    <script src="js/GPUParticleSystem.js"></script>
+    <script src="js/dat.gui.min.js"></script>
+    
+    <script id="vertexShader" type="x-shader/x-vertex">
+
+	//Three.js gives us these automatically when a perspective camera is bound to the renderer
+	uniform mat4 modelMatrix;
+	uniform mat4 viewMatrix;
+    uniform mat4 projectionMatrix;
+
+	//Three.js geometry creates these for us (and also texture coords, which we aren't using here)
+    attribute vec3 position;
+	attribute vec3 normal;
+
+	//We are explicitly passing these in
+    uniform vec3 light1_pos;
+    uniform vec3 light2_pos;
+    uniform vec3 light3_pos;
+
+    //varying vec3 light1_pos, light2_pos, light3_pos;
+	varying vec3 N, L1, L2, L3, V;
+
+	void main() {
+
+        	//get the vertex position in CAMERA coordinates
+        	vec4 position = viewMatrix * modelMatrix * vec4(position, 1.0);
+
+        	//use xyz vals to calculate vectors between vertex, light, and camera
+        	vec3 P = position.xyz;
+    
+        	//get the normalized vertex normal in CAMERA coordinates
+        	N = vec3(normalize(viewMatrix * modelMatrix * vec4(normal.xyz, 0.0)  ).xyz) ;
+    
+        	//the lights positions are defined in WORLD coordinates, we want to put them in CAMERA coordinates too
+        	vec4 L1_cam = viewMatrix * vec4(light1_pos, 1.0);
+        	vec4 L2_cam = viewMatrix * vec4(light2_pos, 1.0);
+            vec4 L3_cam = viewMatrix * vec4(light3_pos, 1.0);
+    
+        	//get the normalized vectors from each light position to the vertex positions
+        	L1 = vec3(normalize(L1_cam - position).xyz);
+        	L2 = vec3(normalize(L2_cam - position).xyz);
+            L3 = vec3(normalize(L3_cam - position).xyz);
+    
+        	//reverse direction of position vector to get view vector from vertex to camera
+        	V = normalize(-P);
+    
+    
+        	//of course, we always have to output our vertices in clip coords by multiplying through a projection matrix.
+        	gl_Position = projectionMatrix * position; 
+     	 }
+
+		</script>
+
+		<script id="fragmentShader" type="x-shader/x-fragment">
+
+	precision mediump float;
+	
+      	varying vec3 V, N, L1, L2, L3;
+      	float spec_intensity = 32.0; //higher value indicates more rapid falloff
+
+      	uniform vec3 ambient; //general ambient light in the scene applied to all objects
+
+      	uniform vec3 light1_diffuse;
+      	uniform vec3 light2_diffuse;
+        uniform vec3 light3_diffuse;
+
+      	uniform vec3 light1_specular;
+      	uniform vec3 light2_specular;
+        uniform vec3 light3_specular;
+
+
+      	void main() {
+
+        	vec4 outColor1 = vec4(0.0);
+        	vec4 outColor2 = vec4(0.0);
+            vec4 outColor3 = vec4(0.0);
+        
+        	//diffuse light depends on the angle between the light and the vertex normal
+        	float diff1 = max(0.0, dot(N, L1)); //just to make sure not negative
+        	vec3 color1 = diff1 * light1_diffuse;
+        
+        	//specular highlights depend upon the position/orientation of the camera and the direction of the light reflecting off of this geometry
+        	vec3 R1 = normalize(reflect(-L1,N)); //get light vector reflected across the plane defined by the normal of this geometry
+        	float spec1 = pow( max(dot(R1, V), 0.0), spec_intensity); //raising the value to a particular intensity value shrinks the size of the specular highlight so that only a reflection vector (R1) that is very close to the view vector (V) will be applied to this fragment.
+        
+        	color1 += spec1 * light1_specular;
+        	if (spec1 > 1.0) {
+          		outColor1 = vec4(light1_specular,1.0);
+        	} else {
+          		outColor1 = clamp(vec4(color1,1.0), 0.0,1.0);
+        	}
+        
+
+        	//diffuse
+        	float diff2 = max(0.0, dot(N, L2));
+        	vec3 color2 = diff2 * light2_diffuse;
+        
+        
+        	//specular
+        	vec3 R2 = normalize(reflect(-L2,N));
+        
+        	float spec2 = pow( max(dot(R2, V), 0.0), spec_intensity);
+        	color2 += spec2 * light2_specular;
+        	if (spec2 > 1.0) {
+          		outColor2 = vec4(light2_specular,1.0);
+        	} else {
+          		outColor2 = clamp(vec4(color2,1.0), 0.0,1.0);
+        	}
+            
+            //diffuse
+        	float diff3 = max(0.0, dot(N, L3));
+        	vec3 color3 = diff3 * light3_diffuse;
+        
+        
+        	//specular
+        	vec3 R3 = normalize(reflect(-L3,N));
+        
+        	float spec3 = pow( max(dot(R3, V), 0.0), spec_intensity);
+        	color3 += spec3 * light3_specular;
+        	if (spec3 > 1.0) {
+          		outColor3 = vec4(light3_specular,1.0);
+        	} else {
+          		outColor3 = clamp(vec4(color3,1.0), 0.0,1.0);
+        	}
+        
+        	gl_FragColor = clamp(vec4(ambient, 1.0) + outColor1 + outColor2 + outColor3, 0.0, 1.0); //add the two lights together, make sure final value is between 0.0 and 1.0
+        
+
+	}
+
+	</script>
+    
+    <script id="noiseVertexShader" type="x-shader/x-vertex">
+
+	uniform mat4 modelMatrix;
+	uniform mat4 viewMatrix;
+      	uniform mat4 projectionMatrix;
+
+     	attribute vec3 position;
+	attribute vec3 normal;
+
+      	uniform float in_val; //a value that changes slowly over time...
+	uniform float displaceAmt; //controls the amount of vertex displacement...
+	
+      	varying float noiseVal, noiseVal2;
+
+
+vec3 mod289(vec3 x)
+{
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 mod289(vec4 x)
+{
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 permute(vec4 x)
+{
+  return mod289(((x*34.0)+1.0)*x);
+}
+
+vec4 taylorInvSqrt(vec4 r)
+{
+  return 1.79284291400159 - 0.85373472095314 * r;
+}
+
+vec3 fade(vec3 t) {
+  return t*t*t*(t*(t*6.0-15.0)+10.0);
+}
+
+// Classic Perlin noise, periodic variant
+float pnoise(vec3 P, vec3 rep)
+{
+  vec3 Pi0 = mod(floor(P), rep); // Integer part, modulo period
+  vec3 Pi1 = mod(Pi0 + vec3(1.0), rep); // Integer part + 1, mod period
+  Pi0 = mod289(Pi0);
+  Pi1 = mod289(Pi1);
+  vec3 Pf0 = fract(P); // Fractional part for interpolation
+  vec3 Pf1 = Pf0 - vec3(1.0); // Fractional part - 1.0
+  vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x);
+  vec4 iy = vec4(Pi0.yy, Pi1.yy);
+  vec4 iz0 = Pi0.zzzz;
+  vec4 iz1 = Pi1.zzzz;
+  
+  vec4 ixy = permute(permute(ix) + iy);
+  vec4 ixy0 = permute(ixy + iz0);
+  vec4 ixy1 = permute(ixy + iz1);
+  
+  vec4 gx0 = ixy0 * (1.0 / 7.0);
+  vec4 gy0 = fract(floor(gx0) * (1.0 / 7.0)) - 0.5;
+  gx0 = fract(gx0);
+  vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0);
+  vec4 sz0 = step(gz0, vec4(0.0));
+  gx0 -= sz0 * (step(0.0, gx0) - 0.5);
+  gy0 -= sz0 * (step(0.0, gy0) - 0.5);
+  
+  vec4 gx1 = ixy1 * (1.0 / 7.0);
+  vec4 gy1 = fract(floor(gx1) * (1.0 / 7.0)) - 0.5;
+  gx1 = fract(gx1);
+  vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1);
+  vec4 sz1 = step(gz1, vec4(0.0));
+  gx1 -= sz1 * (step(0.0, gx1) - 0.5);
+  gy1 -= sz1 * (step(0.0, gy1) - 0.5);
+  
+  vec3 g000 = vec3(gx0.x,gy0.x,gz0.x);
+  vec3 g100 = vec3(gx0.y,gy0.y,gz0.y);
+  vec3 g010 = vec3(gx0.z,gy0.z,gz0.z);
+  vec3 g110 = vec3(gx0.w,gy0.w,gz0.w);
+  vec3 g001 = vec3(gx1.x,gy1.x,gz1.x);
+  vec3 g101 = vec3(gx1.y,gy1.y,gz1.y);
+  vec3 g011 = vec3(gx1.z,gy1.z,gz1.z);
+  vec3 g111 = vec3(gx1.w,gy1.w,gz1.w);
+  
+  vec4 norm0 = taylorInvSqrt(vec4(dot(g000, g000), dot(g010, g010), dot(g100, g100), dot(g110, g110)));
+  g000 *= norm0.x;
+  g010 *= norm0.y;
+  g100 *= norm0.z;
+  g110 *= norm0.w;
+  vec4 norm1 = taylorInvSqrt(vec4(dot(g001, g001), dot(g011, g011), dot(g101, g101), dot(g111, g111)));
+  g001 *= norm1.x;
+  g011 *= norm1.y;
+  g101 *= norm1.z;
+  g111 *= norm1.w;
+  
+  float n000 = dot(g000, Pf0);
+  float n100 = dot(g100, vec3(Pf1.x, Pf0.yz));
+  float n010 = dot(g010, vec3(Pf0.x, Pf1.y, Pf0.z));
+  float n110 = dot(g110, vec3(Pf1.xy, Pf0.z));
+  float n001 = dot(g001, vec3(Pf0.xy, Pf1.z));
+  float n101 = dot(g101, vec3(Pf1.x, Pf0.y, Pf1.z));
+  float n011 = dot(g011, vec3(Pf0.x, Pf1.yz));
+  float n111 = dot(g111, Pf1);
+  
+  vec3 fade_xyz = fade(Pf0);
+  vec4 n_z = mix(vec4(n000, n100, n010, n110), vec4(n001, n101, n011, n111), fade_xyz.z);
+  vec2 n_yz = mix(n_z.xy, n_z.zw, fade_xyz.y);
+  float n_xyz = mix(n_yz.x, n_yz.y, fade_xyz.x);
+  return 2.2 * n_xyz;
+}
+
+float turbulence( vec3 p ) {
+  float w = 100.0;
+  float t = -.5;
+  for (float f = 1.0 ; f <= 10.0 ; f++ ){
+    float power = pow( 2.0, f );
+    t += abs( pnoise( vec3( power * p ), vec3( 10.0, 10.0, 10.0 ) ) / power );
+  }
+  return t;
+}
+
+
+
+	void main()	{
+
+       
+        	// get a 3d noise using the position, low frequency
+        	float lowFreq = pnoise( position.xyz + vec3(in_val), vec3(10.0) );
+        
+        
+        	// get a turbulent 3d noise using the normal, normal to high freq
+        	float highFreq = -.5 * turbulence( 0.7 * (position.xyz + vec3(in_val)) );
+        
+        
+        	//add high freq noise + low freq noise together
+        	//  float displacement = lowFreq;
+        	//  float displacement = highFreq;
+        	float displacement = (lowFreq + highFreq) * displaceAmt;
+
+        
+        	noiseVal = highFreq;
+        	noiseVal2 = lowFreq;
+        	// move the position along the normal and transform it
+        	vec3 newPosition = (position.xyz + normal.xyz * displacement).xyz;
+      
+       		gl_Position = projectionMatrix  * viewMatrix * modelMatrix  * vec4( newPosition, 1.0 );
+
+       		// gl_Position = projectionMatrix * viewMatrix * modelMatrix  * vec4( position, 1.0 );
+
+      }
+
+		</script>
+
+		<script id="noiseFragmentShader" type="x-shader/x-fragment">
+
+			precision mediump float;
+	
+      varying float noiseVal;
+      varying float noiseVal2;
+
+
+      void main()	{
+
+        vec3 color = vec3( 0.5 * ( 1.0 - (3.0 * noiseVal) ), 0.0, 0.0 );
+        vec3 color2 = vec3( 0.0, 0.2 * ( 0.5 - (3.0 * noiseVal2) ), 0.5 );//vec3( 1.0, 1.0 * ( 1.0 - (3.0 * noiseVal2) ), (noiseVal2*5.0) );
+  
+        gl_FragColor = vec4( color.r, color2.g, color2.b, 1.0 );        
+
+			}
+
+		</script>
+
+    <style>
+        #button{
+            position: absolute;
+            font-size: 40px;
+            top: 45px;
+            height: 60px;
+            width: 200px;
+            z-index: 1;
+        }
+        
+        p{
+            position: absolute;
+            z-index: 1;
+        }
+    </style>
+	<script>
+        
+    document.getElementById("button").addEventListener("click", function() {
+        sneeze();
+    });
+				
+  	var container;
+
+	var camera, scene, renderer;
+        
+    var tick = 0;
+    var clock = new THREE.Clock();
+    var rotation = 135;//300;
+
+    var vs = document.getElementById( 'vertexShader' ).textContent;
+    var fs = document.getElementById( 'fragmentShader' ).textContent;
+    var nvs = document.getElementById( 'noiseVertexShader' ).textContent;
+    var nfs = document.getElementById( 'noiseFragmentShader' ).textContent;
+
+	var mesh;
+	var material;
+        
+    var light1_pos = new THREE.Vector3(0.0,10.0,0.0); //from above
+            
+    // lights
+    var ambient = new THREE.Vector3(0.1,0.1,0.1);
+
+    var light1_diffuse = new THREE.Vector3(1.0,1.0,1.0);
+    var light1_specular = new THREE.Vector3(1.0,1.0,1.0);
+        
+    var gui = new dat.GUI( { width: 350 } );
+        
+    var loader = new THREE.OBJLoader(  );
+				
+	loader.load( 'model.obj', function ( object ) {
+		
+		object.traverse( function ( child ) {
+			if ( child instanceof THREE.Mesh ) {
+				child.material = material;
+			}
+		} );
+		
+		var s = 4.0;
+		object.scale.set( s, s, s );
+		object.position.x -=0.6;//-= 1.0;
+		object.position.y -= 0.5; //0.5
+        object.rotation.y = rotation;//300;
+
+		mesh = object;
+		scene.add( mesh );
+	} );
+        
+
+	init();
+	animate();
+
+	function init() {
+
+		container = document.getElementById( 'container' );
+
+		camera = new THREE.PerspectiveCamera( 60.0, window.innerWidth / window.innerHeight, 0.1, 50 );
+		camera.position.z = 5;
+
+		scene = new THREE.Scene();
+       
+		// materials (ie, linking to the shader program)
+
+        var uniforms =  {
+            ambient: { type: "v3", value: ambient },
+            light1_pos: { type: "v3", value: light1_pos },
+            light1_diffuse: { type: "v3", value: light1_diffuse },
+            light1_specular:  { type: "v3", value: light1_specular },
+		};
+
+        material = new THREE.RawShaderMaterial( {
+            uniforms: uniforms,
+            vertexShader: vs,
+            fragmentShader: fs,	
+		} );
+        
+        var geometry1 = new THREE.PlaneGeometry( 12, 6, 100, 100 );
+
+        var uniforms1 =  {
+		  in_val:  { type: "f", value: 0.0 },
+		  displaceAmt: { type: "f", value: 0.0 }, 
+	    };
+        
+        var material1 = new THREE.RawShaderMaterial( {
+            uniforms: uniforms1,
+            vertexShader: nvs,
+            fragmentShader: nfs	
+	   } );
+        
+        var mesh1 = new THREE.Mesh( geometry1, material1 );
+	    mesh1.material.side = THREE.DoubleSide;
+        scene.add( mesh1 );
+        
+        particleSystem = new THREE.GPUParticleSystem( {
+				maxParticles: 250000,
+		} );
+        particleSystem.position.x = -.6;
+        particleSystem.position.y = -.6;
+        particleSystem.position.z = 1;
+
+		scene.add( particleSystem );
+        
+        			// options passed during each spawned
+
+        options = {
+            position: new THREE.Vector3(),
+            velocity: new THREE.Vector3(),
+            velocityRandomness: .5,
+            color: 0xaa88ff,
+            turbulence: .06,
+            lifetime: 2,
+            size: 8,
+            sizeRandomness: 1,
+           // rotation: rotation
+        };
+
+        spawnerOptions = {
+            spawnRate: 0,
+            horizontalSpeed: 1.5,
+            verticalSpeed: 1.33,
+            timeScale: 1
+        };
+
+        gui.add( options, "velocityRandomness", 0, 3 );
+        gui.add( options, "size", 1, 20 );
+        gui.add( options, "sizeRandomness", 0, 25 );
+        gui.add( options, "lifetime", .1, 10 );
+        gui.add( options, "turbulence", 0, 1 );
+        //gui.add( options, "rotation", rotation-5, rotation+5 );
+
+        //gui.add( spawnerOptions, "spawnRate", 10, 30000 );
+        gui.add( spawnerOptions, "timeScale", -1, 1 );
+        
+		renderer = new THREE.WebGLRenderer();
+		renderer.setClearColor( 0x999999 );
+		renderer.setSize( window.innerWidth, window.innerHeight );
+		container.appendChild( renderer.domElement );
+
+
+		//make it so that resizing the browser window also resizes the scene
+        window.addEventListener( 'resize', onWindowResize, false );
+	}
+
+			
+
+	function animate() {
+
+		requestAnimationFrame( animate );
+        
+        var delta = clock.getDelta() * spawnerOptions.timeScale;
+
+        tick += delta;
+
+        if ( tick < 0 ) tick = 0;
+
+        if ( delta > 0 ) {
+
+            for ( var x = 0; x < spawnerOptions.spawnRate * delta; x++ ) {
+
+                // Yep, that's really it.	Spawning particles is super cheap, and once you spawn them, the rest of
+                // their lifecycle is handled entirely on the GPU, driven by a time uniform updated below
+
+                particleSystem.spawnParticle( options );
+
+            }
+
+        }
+
+        spawnerOptions.spawnRate -= 200;
+        
+        particleSystem.update( tick );
+        
+		render();
+
+	}
+        
+    function sneeze(){
+        spawnerOptions.spawnRate = 15000
+    }
+
+	function render() {
+
+		var time = performance.now();
+        
+        var object1 = scene.children[ 0 ];
+        object1.material.uniforms.in_val.value += 0.01;
+       // var object2 = scene.children[2];
+       // object2.rotation.y = options.rotation;
+
+		renderer.render( scene, camera );
+	}
+
+
+	function onWindowResize( event ) {
+
+		camera.aspect = window.innerWidth / window.innerHeight;
+		camera.updateProjectionMatrix();
+
+		renderer.setSize( window.innerWidth, window.innerHeight );
+
+	}
+        
+		</script>
+
+	</body>
+</html>
+
