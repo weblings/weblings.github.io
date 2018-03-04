@@ -1,0 +1,2 @@
+
+For Part B I converted part 5 of the shadertoy raymarching examples we were working on in class into WebGL code so it would compile. From there I used one of IQ's forumlas for other 3D shapes. It takes the intersection of a cube and a torus as they move and expand in the scene. The shape's color also changes to give it a bit more flair.
